@@ -1,0 +1,20 @@
+%YAML:1.0
+---
+calibration_time: "ti 18. syyskuuta 2018 11.01.40"
+image_width: 400
+image_height: 300
+flags: 0
+camera_matrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 3.8410075298563885e+02, 0., 1.9746516500202378e+02, 0.,
+       3.8332484539609527e+02, 1.4705346614661491e+02, 0., 0., 1. ]
+distortion_coefficients: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [ -5.1500097849734701e-02, 1.6269189126063380e-01,
+       -2.3678771788618659e-03, 1.8843899115724902e-03,
+       -1.7269219846110584e-01 ]
+avg_reprojection_error: 6.1970063820551780e-01

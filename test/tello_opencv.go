@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	frameX    = 960
-	frameY    = 720
+	frameX    = 480
+	frameY    = 360
 	frameSize = frameX * frameY * 3
 
 )
@@ -102,19 +102,19 @@ func main() {
 			continue
 		}
 
-		tracking.PrintIfChanged(hmin, hminTracking, "H_MIN")
-		tracking.PrintIfChanged(hmax, hmaxTracking, "H_MAX")
-		tracking.PrintIfChanged(vmin, vminTracking, "V_MIN")
-		tracking.PrintIfChanged(vmax, vmaxTracking, "V_MAX")
-		tracking.PrintIfChanged(smin, sminTracking, "S_MIN")
-		tracking.PrintIfChanged(smax, smaxTracking, "S_MIN")
-		tracking.FilterImage(img, &img,
+		tracking.PrintIfChanged(&hmin, hminTracking, "H_MIN")
+		tracking.PrintIfChanged(&hmax, hmaxTracking, "H_MAX")
+		tracking.PrintIfChanged(&vmin, vminTracking, "V_MIN")
+		tracking.PrintIfChanged(&vmax, vmaxTracking, "V_MAX")
+		tracking.PrintIfChanged(&smin, sminTracking, "S_MIN")
+		tracking.PrintIfChanged(&smax, smaxTracking, "S_MIN")
+		/*tracking.FilterImage(img, &img,
 			hminTracking.GetPos(),
 			hmaxTracking.GetPos(),
 			sminTracking.GetPos(),
 			smaxTracking.GetPos(),
 			vminTracking.GetPos(),
-			vmaxTracking.GetPos())
+			vmaxTracking.GetPos())*/
 
 		window.IMShow(img)
 
