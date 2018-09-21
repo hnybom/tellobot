@@ -3,23 +3,17 @@ package main
 import (
 	"fmt"
 	"github.com/go-gl/mathgl/mgl32"
-	"gobot.io/x/gobot"
-	"gobot.io/x/gobot/platforms/dji/tello"
 	"gobot.io/x/gobot/platforms/keyboard"
 	"gocv.io/x/gocv"
-	"io"
-	"os/exec"
-	"strconv"
+	"tellobot/drone"
 	"tellobot/race"
 	"tellobot/tracking"
-	"time"
 )
 
 const (
 	frameX    = 400
 	frameY    = 300
 	frameSize = frameX * frameY * 3
-
 )
 
 var (
@@ -27,101 +21,72 @@ var (
 )
 
 func main() {
-	window := gocv.NewWindow("Tello")
-	racing := race.NewRace("../drone-camera-calibration-400.yaml")
 
-	drone := tello.NewDriver("8890")
-	keys := keyboard.NewDriver()
-	mapKeys(keys, drone)
+	// create window
+	window := gocv.NewWindow("Drone")
 
-	ffmpeg := exec.Command("ffmpeg", "-hwaccel", "auto", "-hwaccel_device", "opencl", "-i", "pipe:0",
-		"-pix_fmt", "bgr24", "-s", strconv.Itoa(frameX)+"x"+strconv.Itoa(frameY), "-f", "rawvideo", "pipe:1")
-	ffmpegIn, _ := ffmpeg.StdinPipe()
-	ffmpegOut, _ := ffmpeg.StdoutPipe()
+	// create race
+	racex := race.NewRace()
+	defer racex.Close()
 
-	work := func() {
-		if err := ffmpeg.Start(); err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		drone.On(tello.ConnectedEvent, func(data interface{}) {
-			fmt.Println("Connected")
-			drone.StartVideo()
-			drone.SetVideoEncoderRate(tello.VideoBitRate1M)
-			drone.SetExposure(0)
-
-			gobot.Every(100*time.Millisecond, func() {
-				drone.StartVideo()
-			})
-
-		})
-
-		drone.On(tello.VideoFrameEvent, func(data interface{}) {
-			pkt := data.([]byte)
-			if _, err := ffmpegIn.Write(pkt); err != nil {
-				fmt.Println(err)
-			}
-		})
+	// create drone
+	//dronex := drone.New(drone.DroneFake, mapKeys, "../camera-calibration.yaml")
+	dronex := drone.New(drone.DroneReal, mapKeys, "../drone-camera-calibration-400.yaml")
+	err := dronex.Init()
+	if err != nil {
+		fmt.Printf("error while initializing drone: %v\n", err)
+		return
 	}
 
-	robot := gobot.NewRobot("tello",
-		[]gobot.Connection{},
-		[]gobot.Device{drone, keys},
-		work,
-	)
+	// create mat to hold the video frame
+	frame := gocv.NewMat()
 
-	robot.Start(false)
-
-	worldRotationMat := mgl32.HomogRotate3DX(mgl32.DegToRad(13.0))
+	//rings := make(map[int]*race.Ring)
 
 	for {
-		buf := make([]byte, frameSize)
-		if _, err := io.ReadFull(ffmpegOut, buf); err != nil {
-			fmt.Println(err)
-			continue
-		}
-		img, _ := gocv.NewMatFromBytes(frameY, frameX, gocv.MatTypeCV8UC3, buf)
-		if img.Empty() {
+		dronex.ReadVideoFrame(&frame)
+		if frame.Empty() {
 			continue
 		}
 
-		racing.DetectRings(&img)
-		rings := racing.Rings
-
-		for _, ring := range rings {
-			racing.EstimateRingPosition(ring)
-			ring.Draw(&img)
+		//rings := racex.DetectRings(&frame, nil)
+		rings := racex.DetectRings(&frame, nil)
+		zvecs := []mgl32.Vec3{}
+		for id, ring := range rings {
+			_ = id
+			_, rot := ring.EstimatePose(dronex)
+			zvec := rot.Mul3x1(mgl32.Vec3{ 0.0, 0.0, 1.0 })
+			zvecs = append(zvecs, zvec)
+			//fmt.Printf("%.2f, %.2f, %.2f\n", ring.Position[0], ring.Position[1], ring.Position[2])
+			ring.Draw(&frame, dronex)
 		}
 
-		if(len(rings) > 0 && takenoff) {
-			pos := rings[0].Position
-			transformedPosition := mgl32.TransformCoordinate(pos, worldRotationMat)
-			tracking.FlyTracking(transformedPosition.X(), transformedPosition.Y(), transformedPosition.Z(), drone)
+		if (len(rings) > 0 && takenoff) {
+			pos := dronex.CameraToDroneMatrix().Mul3x1(rings[0].Position)
+			zrot := zvecs[0][0]
+			tracking.FlyTracking(pos.X(), pos.Y(), pos.Z(), zrot, dronex)
+		} else {
+			dronex.Hover()
+			dronex.CeaseRotation()
 		}
 
-		window.IMShow(img)
+		drone.DrawCrosshair(dronex, &frame)
+		drone.DrawControls(dronex, &frame)
+
+		window.IMShow(frame)
 		window.WaitKey(1)
 	}
-
-
 }
 
-
-func mapKeys(keys *keyboard.Driver, drone *tello.Driver) {
-
-
-
-	keys.On(keyboard.Key, func(data interface{}) {
-		key := data.(keyboard.KeyEvent)
-		switch key.Key {
-		case keyboard.Spacebar:
-			if(takenoff) {
-				drone.Land()
-			} else {
-				drone.TakeOff()
-			}
-			takenoff = !takenoff
+func mapKeys(key keyboard.KeyEvent, drone drone.Drone) {
+	switch key.Key {
+	case keyboard.Spacebar:
+		if (takenoff) {
+			drone.Land()
+		} else {
+			drone.TakeOff()
 		}
-	})
+		takenoff = !takenoff
+	}
+
 }
