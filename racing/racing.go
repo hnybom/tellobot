@@ -61,13 +61,12 @@ func main() {
 			ring.Draw(&frame, dronex)
 		}
 
-		if (len(rings) > 0 && takenoff) {
+		if (len(rings) > 0) {
 			pos := dronex.CameraToDroneMatrix().Mul3x1(rings[0].Position)
 			zrot := zvecs[0][0]
 			tracking.FlyTracking(pos.X(), pos.Y(), pos.Z(), zrot, dronex)
 		} else {
-			dronex.Hover()
-			dronex.CeaseRotation()
+			tracking.FindNextRing(dronex)
 		}
 
 		drone.DrawCrosshair(dronex, &frame)
