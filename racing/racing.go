@@ -18,6 +18,7 @@ const (
 
 var (
 	takenoff = false
+	track    = false
 )
 
 func main() {
@@ -55,18 +56,19 @@ func main() {
 		for id, ring := range rings {
 			_ = id
 			_, rot := ring.EstimatePose(dronex)
-			zvec := rot.Mul3x1(mgl32.Vec3{ 0.0, 0.0, 1.0 })
+			zvec := rot.Mul3x1(mgl32.Vec3{0.0, 0.0, 1.0})
 			zvecs = append(zvecs, zvec)
 			//fmt.Printf("%.2f, %.2f, %.2f\n", ring.Position[0], ring.Position[1], ring.Position[2])
 			ring.Draw(&frame, dronex)
 		}
 
-		if (len(rings) > 0) {
+		if len(rings) > 0 && track {
 			pos := dronex.CameraToDroneMatrix().Mul3x1(rings[0].Position)
 			zrot := zvecs[0][0]
 			tracking.FlyTracking(pos.X(), pos.Y(), pos.Z(), zrot, dronex)
 		} else {
-			tracking.FindNextRing(dronex)
+			dronex.Hover()
+			//tracking.FindNextRing(dronex)
 		}
 
 		drone.DrawCrosshair(dronex, &frame)
@@ -86,6 +88,8 @@ func mapKeys(key keyboard.KeyEvent, drone drone.Drone) {
 			drone.TakeOff()
 		}
 		takenoff = !takenoff
+	case keyboard.T:
+		track = !track
 	}
 
 }
