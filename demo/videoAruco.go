@@ -21,7 +21,7 @@ const (
 	frameX    = 400
 	frameY    = 300
 	frameSize = frameX * frameY * 3
-	webCam 	  = false
+	webCam 	  = true
 	maxPower = float32(50)
 	minPower = float32(10)
 )

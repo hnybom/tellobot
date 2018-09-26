@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"tellobot/drone"
 
 	"github.com/go-gl/mathgl/mgl32"
 	"gocv.io/x/gocv"
@@ -38,18 +39,12 @@ func init() {
 }
 
 type Race struct {
-	dict       contrib.ArucoDictionary
-	CamMatrix  gocv.Mat
-	DistCoeffs gocv.Mat
-	Rings      map[int]*Ring
+	dict contrib.ArucoDictionary
 }
 
-func NewRace(calibrationFile string) *Race {
+func NewRace() *Race {
 	r := Race{}
 	r.dict = contrib.NewArucoPredefinedDictionary(contrib.ArucoPredefinedDict_5x5_50)
-	r.Rings = make(map[int]*Ring)
-
-	r.CamMatrix, r.DistCoeffs = contrib.ReadCameraParameters(calibrationFile)
 
 	return &r
 }
@@ -80,10 +75,16 @@ func findSize(corners []mgl32.Vec2) mgl32.Vec2 {
 	return max.Sub(min)
 }
 
-func (r *Race) DetectRings(img *gocv.Mat) {
+func (r *Race) DetectRings(img *gocv.Mat, rings map[int]*Ring) map[int]*Ring {
+	tracking := false
+	if rings != nil {
+		tracking = true
+	} else {
+		rings = make(map[int]*Ring)
+	}
 
-	// remove too old markers & rings
-	for id, ring := range r.Rings {
+	// remove too old markers & rings (if no rings were given, this will be skipped)
+	for id, ring := range rings {
 		markersVisible := 0
 		for i, m := range ring.Markers {
 			if m == nil {
@@ -106,7 +107,7 @@ func (r *Race) DetectRings(img *gocv.Mat) {
 
 		if markersVisible == 0 {
 			// this ring has no markers visible
-			delete(r.Rings, id)
+			delete(rings, id)
 		}
 	}
 
@@ -116,10 +117,10 @@ func (r *Race) DetectRings(img *gocv.Mat) {
 	corners, ids := r.dict.DetectMarkers(img)
 	for i, id := range ids {
 		ringId := (id - 1) / 4
-		ring, ok := r.Rings[ringId]
+		ring, ok := rings[ringId]
 		if !ok {
-			ring = &Ring{race: r}
-			r.Rings[ringId] = ring
+			ring = &Ring{}
+			rings[ringId] = ring
 		}
 		m := ring.Markers[(id-1)%4]
 		if m == nil {
@@ -127,49 +128,89 @@ func (r *Race) DetectRings(img *gocv.Mat) {
 			ring.Markers[(id-1)%4] = m
 		}
 		m.Corners = corners[i]
-		size := findSize(m.Corners)
-		m.DetectedAgo = 0
-		// setup new trackers
-		for j := 0; j < 4; j++ {
-			if m.Trackers[j] != nil {
-				m.Trackers[j].Close()
-			}
-			m.Trackers[j] = contrib.NewTrackerMedianFlow()
 
-			rect := image.Rect(
-				int(m.Corners[j][0]-size[0]*trackerRectSize),
-				int(m.Corners[j][1]-size[1]*trackerRectSize),
-				int(m.Corners[j][0]+size[0]*trackerRectSize),
-				int(m.Corners[j][1]+size[1]*trackerRectSize))
-			m.Trackers[j].Init(*img, rect)
-		}
-	}
+		if tracking {
+			size := findSize(m.Corners)
+			m.DetectedAgo = 0
 
-	// update trackers for undetected corners
-	for _, ring := range r.Rings {
-		for _, m := range ring.Markers {
-			if m == nil {
-				continue
-			}
-			if m.DetectedAgo == 0 {
-				continue
-			}
-
+			// setup new trackers
 			for j := 0; j < 4; j++ {
-				if m.Trackers[j] == nil {
-					continue
-				}
-				rect, ok := m.Trackers[j].Update(*img)
-				if !ok {
+				if m.Trackers[j] != nil {
 					m.Trackers[j].Close()
-					m.Trackers[j] = nil
-					continue
 				}
-				m.Corners[j][0] = float32(rect.Min.X+rect.Max.X) * 0.5
-				m.Corners[j][1] = float32(rect.Min.Y+rect.Max.Y) * 0.5
+				m.Trackers[j] = contrib.NewTrackerMedianFlow()
+
+				rect := image.Rect(
+					int(m.Corners[j][0]-size[0]*trackerRectSize),
+					int(m.Corners[j][1]-size[1]*trackerRectSize),
+					int(m.Corners[j][0]+size[0]*trackerRectSize),
+					int(m.Corners[j][1]+size[1]*trackerRectSize))
+				m.Trackers[j].Init(*img, rect)
 			}
 		}
 	}
+
+	if tracking {
+		// update trackers for undetected corners
+		for id, ring := range rings {
+			markersActive := 0
+			totalCorners := 0
+			for i, m := range ring.Markers {
+				if m == nil {
+					continue
+				}
+				if m.DetectedAgo == 0 {
+					markersActive++
+					totalCorners += 4
+					continue
+				}
+
+				cornersActive := 0
+				for j := 0; j < 4; j++ {
+					if m.Trackers[j] == nil {
+						continue
+					}
+					rect, ok := m.Trackers[j].Update(*img)
+					if !ok {
+						m.Trackers[j].Close()
+						m.Trackers[j] = nil
+						continue
+					}
+
+					corner := mgl32.Vec2{float32(rect.Min.X+rect.Max.X) * 0.5, float32(rect.Min.Y+rect.Max.Y) * 0.5}
+
+					remove := false
+					if rect.Max.X-rect.Min.X > 100 {
+						remove = true
+					} else if rect.Max.Y-rect.Min.Y > 100 {
+						remove = true
+					} else if corner.Sub(m.Corners[j]).Len() > 50 {
+						remove = true
+					}
+					if remove {
+						m.Trackers[j].Close()
+						m.Trackers[j] = nil
+						continue
+					}
+					cornersActive++
+
+					m.Corners[j] = corner
+				}
+				if cornersActive == 0 {
+					ring.Markers[i] = nil
+				} else {
+					totalCorners += cornersActive
+					markersActive++
+				}
+			}
+			if markersActive == 0 || totalCorners < 4 {
+				fmt.Println(markersActive, totalCorners)
+				delete(rings, id)
+			}
+		}
+	}
+
+	return rings
 }
 
 var markerCorners []mgl32.Vec3 = []mgl32.Vec3{
@@ -179,10 +220,10 @@ var markerCorners []mgl32.Vec3 = []mgl32.Vec3{
 	mgl32.Vec3{-0.04, -0.04, 0},
 }
 
-func (r *Race) EstimateRingPosition(ring *Ring) {
+func (r *Ring) EstimatePose(d drone.Drone) (pos mgl32.Vec3, rot mgl32.Mat3) {
 	var objectPoints []mgl32.Vec3
 	var imagePoints []mgl32.Vec2
-	for i, m := range ring.Markers {
+	for i, m := range r.Markers {
 		if m == nil {
 			continue
 		}
@@ -194,25 +235,29 @@ func (r *Race) EstimateRingPosition(ring *Ring) {
 		}
 	}
 
-	ring.Rotation, ring.Position = contrib.SolvePnP(objectPoints, imagePoints, &r.CamMatrix, &r.DistCoeffs)
+	r.RodriguesRotation, r.Position = contrib.SolvePnP(objectPoints, imagePoints, d.CameraMatrix(), d.DistortionCoefficients())
+
+	rot = contrib.Rodrigues(r.RodriguesRotation)
+
+	return r.Position, rot
 }
 
 type Ring struct {
 	Markers [4]*Marker // N, E, S, W
 
-	Position mgl32.Vec3
-	Rotation mgl32.Vec3
-
-	race *Race
+	Position          mgl32.Vec3
+	RodriguesRotation mgl32.Vec3
 }
+
 type Marker struct {
 	Corners     []mgl32.Vec2       // NW, NE, SE, SW
 	Trackers    [4]contrib.Tracker // one tracker per corner
 	DetectedAgo int                // how many frames ago
 }
 
-func (ring *Ring) Draw(img *gocv.Mat) {
-	p := contrib.ProjectPoints(projectPoints, ring.Rotation, ring.Position, &ring.race.CamMatrix, &ring.race.DistCoeffs)
+func (r *Ring) Draw(img *gocv.Mat, d drone.Drone) {
+
+	p := contrib.ProjectPoints(projectPoints, r.RodriguesRotation, r.Position, d.CameraMatrix(), d.DistortionCoefficients())
 	center := image.Pt(int(p[0][0]), int(p[0][1]))
 	z := image.Pt(int(p[1][0]), int(p[1][1]))
 	z2 := image.Pt(int(p[2][0]), int(p[2][1]))
@@ -220,13 +265,13 @@ func (ring *Ring) Draw(img *gocv.Mat) {
 	p = p[3:] // remove center and z-axis
 	for i := 0; i < 4; i++ {
 		pt := image.Pt(int(p[i][0]), int(p[i][1]))
-		if ring.Markers[i] == nil {
-			gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{255, 0, 0, 0}, 2)
+		if r.Markers[i] == nil {
+			gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{255, 0, 0, 0}, 1)
 		} else {
-			if ring.Markers[i].DetectedAgo == 0 {
-				gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{0, 255, 0, 0}, 2)
+			if r.Markers[i].DetectedAgo == 0 {
+				gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{0, 255, 0, 0}, 1)
 			} else {
-				gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{0, 0, 255, 0}, 2)
+				gocv.Ellipse(img, pt, image.Pt(4, 4), 0, 0, 360, color.RGBA{0, 0, 255, 0}, 1)
 			}
 		}
 	}
@@ -235,12 +280,12 @@ func (ring *Ring) Draw(img *gocv.Mat) {
 	for i := 0; i < len(p); i++ {
 		p0 := image.Pt(int(p[i][0]), int(p[i][1]))
 		p1 := image.Pt(int(p[(i+1)%len(p)][0]), int(p[(i+1)%len(p)][1]))
-		gocv.Line(img, p0, p1, color.RGBA{255, 255, 0, 0}, 3)
+		gocv.Line(img, p0, p1, color.RGBA{255, 255, 0, 0}, 2)
 	}
 
-	distStr := fmt.Sprintf("d: %.0fcm", 100*ring.Position[2])
+	distStr := fmt.Sprintf("%.0fcm", 100*r.Position[2])
 	textSize := gocv.GetTextSize(distStr, gocv.FontHersheySimplex, 0.5, 3)
-	gocv.PutText(img, distStr, image.Pt(center.X-textSize.X/2, center.Y+textSize.Y/2), gocv.FontHersheySimplex, 0.8, color.RGBA{255, 255, 255, 0}, 4)
+	gocv.PutText(img, distStr, image.Pt(center.X-textSize.X/2, center.Y+textSize.Y/2), gocv.FontHersheySimplex, 0.8, color.RGBA{255, 255, 255, 0}, 3)
 
 	gocv.Line(img, z, z2, color.RGBA{0, 0, 255, 0}, 1)
 	gocv.Line(img, center, z, color.RGBA{0, 255, 255, 0}, 2)
