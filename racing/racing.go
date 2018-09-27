@@ -64,10 +64,12 @@ func main() {
 
 		if len(rings) > 0 && track {
 			pos := dronex.CameraToDroneMatrix().Mul3x1(rings[0].Position)
+			// pos := rings[0].Position
 			zrot := zvecs[0][0]
 			tracking.FlyTracking(pos.X(), pos.Y(), pos.Z(), zrot, dronex)
 		} else {
 			dronex.Hover()
+			dronex.Clockwise(0)
 			//tracking.FindNextRing(dronex)
 		}
 
