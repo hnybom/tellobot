@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	maxPowerR = float32(60)
+	maxPowerR = float32(40)
 	maxPower = float32(40)
 	minPower = float32(10)
 )
@@ -33,7 +33,7 @@ func FlyTracking(xdiff float32, ydiff float32, distance float32, rotation float3
 
 	powerx := (xdiff / 0.2) * maxPowerR
 	powery := (ydiff / 0.2) * maxPower
-	powerz := rotation * 100
+	powerz := rotation * 30
 
 	powerx = utils.Abs(powerx)
 	powery = utils.Abs(powery)
@@ -60,12 +60,15 @@ func fly(powerx float32, xdiff float32,
 	if xdiff > 0 {
 		drone.Clockwise(int(powerx))
 		fmt.Println("Power to SPIN CLOCKWISE with ", powerx)
+
 	} else {
 		drone.CounterClockwise(int(powerx))
-		fmt.Println("Power to SPIN COUNTERCLOCKWISE with ", powerx)
+		fmt.Println("Power to SPIN COUNTERCLOCKWISE with ", powerz)
+
 	}
 
-	if powery > minPower || powery < -minPower {
+
+	if overMinPower(powery) {
 		if ydiff > 0 {
 			drone.Down(int(powery))
 			fmt.Println("Power to DOWN with ", powery)
@@ -77,16 +80,25 @@ func fly(powerx float32, xdiff float32,
 		drone.Down(0)
 	}
 
-	if rotation > 0 {
-		drone.Right(int(powerz))
-		fmt.Println("Power to RIGHT with ", powerz)
+	if overMinPower(powerz){
+		if rotation > 0 {
+			drone.Right(int(powerz))
+			fmt.Println("Power to RIGHT with ", powerx)
+
+		} else {
+			drone.Left(int(powerz))
+			fmt.Println("Power to LEFT with ", powerx)
+		}
 	} else {
-		drone.Left(int(powerz))
-		fmt.Println("Power to LEFT with ", powerz)
+		drone.Clockwise(0)
 	}
 
 	keepDistance(distance, drone)
 	//flyThrough(xdiff, ydiff, drone, distance)
+}
+
+func overMinPower(powery float32) bool {
+	return powery > minPower || powery < -minPower
 }
 
 func flyThrough(xdiff float32, ydiff float32, distance float32, rotation float32, drone drone.Drone) {
@@ -120,7 +132,6 @@ func keepDistance(distance float32, drone drone.Drone) {
 		drone.Forward(int(powerz))
 		fmt.Println("Power to CLOSER with ", powerz)
 	} else if distance < 1.5 {
-
 		powerz := (1.5 - distance) * maxPower
 		powerz = utils.Abs(powerz)
 		powerz = utils.CapPower(powerz, maxPower)

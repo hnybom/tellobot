@@ -108,7 +108,7 @@ func (d *realDriver) Forward(val int) error {
 
 func (d *realDriver) Backward(val int) error {
 	d.velocity[2] = float32(val) / 100.0 * -1
-	return d.Driver.Forward(val)
+	return d.Driver.Backward(val)
 }
 
 func (d *realDriver) Clockwise(val int) error {
